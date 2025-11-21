@@ -246,6 +246,9 @@
         const modalContent = document.getElementById('modal-content');
 
         let activeCharts = [];
+        let globalHeaders = [];
+        let globalData = [];
+        let currentViewMode = 'grouped'; // 'grouped' or 'individual'
 
         // Apple Human Interface Guidelines - Dark Mode System Colors
         const shapeColors = [
@@ -266,6 +269,47 @@
         showChartsBtn.addEventListener('click', showCharts);
         showShapesBtn.addEventListener('click', showShapes);
 
+        // Create View Toggle
+        const viewToggleContainer = document.createElement('div');
+        viewToggleContainer.className = 'flex justify-center gap-2 mb-8 hidden animate-fade-in';
+        viewToggleContainer.id = 'view-toggle-container';
+        viewToggleContainer.innerHTML = `
+            <div class="bg-[#1c1c1e] p-1 rounded-lg inline-flex border border-[#424245]">
+                <button id="view-grouped-btn" class="px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-200 bg-[#3a3a3c] text-white shadow-sm">
+                    Grouped View
+                </button>
+                <button id="view-individual-btn" class="px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-200 text-[#86868b] hover:text-white">
+                    Individual View
+                </button>
+            </div>
+        `;
+        controlsArea.insertBefore(viewToggleContainer, document.getElementById('charts-grid'));
+
+        const viewGroupedBtn = document.getElementById('view-grouped-btn');
+        const viewIndividualBtn = document.getElementById('view-individual-btn');
+
+        viewGroupedBtn.addEventListener('click', () => setViewMode('grouped'));
+        viewIndividualBtn.addEventListener('click', () => setViewMode('individual'));
+
+        function setViewMode(mode) {
+            if (currentViewMode === mode) return;
+            currentViewMode = mode;
+
+            if (mode === 'grouped') {
+                viewGroupedBtn.classList.add('bg-[#3a3a3c]', 'text-white', 'shadow-sm');
+                viewGroupedBtn.classList.remove('text-[#86868b]', 'hover:text-white');
+                viewIndividualBtn.classList.remove('bg-[#3a3a3c]', 'text-white', 'shadow-sm');
+                viewIndividualBtn.classList.add('text-[#86868b]', 'hover:text-white');
+            } else {
+                viewIndividualBtn.classList.add('bg-[#3a3a3c]', 'text-white', 'shadow-sm');
+                viewIndividualBtn.classList.remove('text-[#86868b]', 'hover:text-white');
+                viewGroupedBtn.classList.remove('bg-[#3a3a3c]', 'text-white', 'shadow-sm');
+                viewGroupedBtn.classList.add('text-[#86868b]', 'hover:text-white');
+            }
+
+            renderCharts();
+        }
+
         closeModalBtn.addEventListener('click', () => {
             detailModal.classList.add('hidden');
         });
@@ -279,6 +323,7 @@
         function showCharts() {
             chartsGrid.classList.remove('hidden');
             shapesGrid.classList.add('hidden');
+            document.getElementById('view-toggle-container').classList.remove('hidden');
 
             // Active State
             showChartsBtn.classList.add('bg-[#3a3a3c]', 'text-white', 'shadow-sm');
@@ -295,6 +340,7 @@
         function showShapes() {
             chartsGrid.classList.add('hidden');
             shapesGrid.classList.remove('hidden');
+            document.getElementById('view-toggle-container').classList.add('hidden');
 
             // Active State
             showShapesBtn.classList.add('bg-[#3a3a3c]', 'text-white', 'shadow-sm');
@@ -381,6 +427,8 @@
                     }
 
                     try {
+                        globalHeaders = headers;
+                        globalData = data;
                         visualizeData(headers, data);
                         displayMessage('success', 'Analysis complete!');
                         controlsArea.classList.remove('hidden');
@@ -418,6 +466,71 @@
         }
 
         function visualizeData(headers, data) {
+            // Initial visualization setup - prepares shapes and calls renderCharts
+            const buildingHeader = headers[0];
+
+            // Prepare Shape Visualization (Static, doesn't change with view mode)
+            const groups = {
+                'Main Area': ['Bedroom 1', 'Bedroom 2', 'Bedroom 3', 'Hall'],
+                'Balcony Area': ['Balcony Main', 'Balcony 1', 'Balcony 2', 'Balcony 3'],
+                'Bathroom Area': ['Bath 1', 'Bath 2', 'Bath 3'],
+                'Utilities Area': ['Dry Balcony', 'Store Room'],
+                'Decor & Dining Area': ['Varanda', 'Lobby', 'Dining'],
+                'Kitchen': ['Kitchen'],
+                'Dresser': ['Dresser']
+            };
+            const findHeader = (key) => headers.find(h => h.trim().toLowerCase() === key.toLowerCase());
+
+            const allRoomColumns = [];
+            Object.values(groups).forEach(cols => allRoomColumns.push(...cols));
+
+            let globalMaxH = 0;
+            let globalMaxW = 0;
+
+            allRoomColumns.forEach(colName => {
+                const actualHeader = findHeader(colName);
+                if (actualHeader) {
+                    data.forEach(r => {
+                        const { length, width } = parseDimensions(r[actualHeader] || '-');
+                        if (length > 0 && width > 0) {
+                            const h = Math.max(length, width);
+                            const w = Math.min(length, width);
+                            if (h > globalMaxH) globalMaxH = h;
+                            if (w > globalMaxW) globalMaxW = w;
+                        }
+                    });
+                }
+            });
+
+            shapesGrid.innerHTML = ''; // Clear existing shapes
+            allRoomColumns.forEach(colName => {
+                const actualHeader = findHeader(colName);
+                if (actualHeader) {
+                    const hasShapes = data.some(r => {
+                        const { length, width } = parseDimensions(r[actualHeader] || '-');
+                        return length > 0 && width > 0;
+                    });
+
+                    if (hasShapes) {
+                        const shapeRows = data.map(r => {
+                            const newRow = { ...r };
+                            return newRow;
+                        });
+                        createShapeVisualization(actualHeader, shapeRows, buildingHeader, globalMaxH, globalMaxW);
+                    }
+                }
+            });
+
+            renderCharts();
+        }
+
+        function renderCharts() {
+            chartsGrid.innerHTML = '';
+            activeCharts.forEach(c => c.destroy());
+            activeCharts = [];
+
+            const headers = globalHeaders;
+            const data = globalData;
             const buildingHeader = headers[0];
             const buildings = data.map(r => r[buildingHeader]);
 
@@ -434,12 +547,15 @@
             const findHeader = (key) => headers.find(h => h.trim().toLowerCase() === key.toLowerCase());
 
             const groupData = {};
-            const breakdownData = {};
+            const breakdownData = {}; // For tooltips in grouped view
+            const individualData = {}; // For individual view
 
             buildings.forEach(b => breakdownData[b] = {});
 
             Object.keys(groups).forEach(groupName => {
                 const targetColumns = groups[groupName];
+
+                // Grouped Data Calculation
                 const areas = data.map(row => {
                     let sum = 0;
                     const buildingName = row[buildingHeader];
@@ -464,8 +580,34 @@
                 if (areas.some(a => a > 0)) {
                     groupData[groupName] = areas;
                 }
+
+                // Individual Data Calculation
+                const groupIndividualDatasets = [];
+                targetColumns.forEach((colName, colIdx) => {
+                    const actualHeader = findHeader(colName);
+                    if (actualHeader) {
+                        const colAreas = data.map(row => {
+                            const dimStr = row[actualHeader] || '-';
+                            return calculateArea(dimStr);
+                        });
+
+                        if (colAreas.some(a => a > 0)) {
+                            groupIndividualDatasets.push({
+                                label: colName,
+                                data: colAreas,
+                                backgroundColor: shapeColors[colIdx % shapeColors.length],
+                                borderRadius: 4,
+                                borderSkipped: false
+                            });
+                        }
+                    }
+                });
+                if (groupIndividualDatasets.length > 0) {
+                    individualData[groupName] = groupIndividualDatasets;
+                }
             });
 
+            // 1. Total Area Breakdown (Always Grouped/Stacked)
             const stackedDatasets = Object.keys(groupData).map((groupName, index) => ({
                 label: groupName,
                 data: groupData[groupName],
@@ -473,61 +615,30 @@
                 borderRadius: 6,
                 borderSkipped: false,
             }));
-
             createBarChart('Total Area Breakdown', buildings, stackedDatasets, true, true, breakdownData);
 
-            Object.keys(groupData).forEach(groupName => {
-                const colorIndex = Object.keys(groups).indexOf(groupName) % shapeColors.length;
-                const color = shapeColors[colorIndex];
-
-                const dataset = [{
-                    label: 'Area (sq. ft.)',
-                    data: groupData[groupName],
-                    backgroundColor: color,
-                    hoverBackgroundColor: color,
-                    borderColor: color,
-                    borderWidth: 0,
-                    borderRadius: 8,
-                    borderSkipped: false,
-                }];
-                createBarChart(groupName, buildings, dataset, false, false, breakdownData);
-            });
-
-            const allRoomColumns = [];
-            Object.values(groups).forEach(cols => allRoomColumns.push(...cols));
-
-            let globalMaxH = 0;
-            let globalMaxW = 0;
-
-            allRoomColumns.forEach(colName => {
-                const actualHeader = findHeader(colName);
-                if (actualHeader) {
-                    data.forEach(r => {
-                        const { length, width } = parseDimensions(r[actualHeader] || '-');
-                        if (length > 0 && width > 0) {
-                            const h = Math.max(length, width);
-                            const w = Math.min(length, width);
-                            if (h > globalMaxH) globalMaxH = h;
-                            if (w > globalMaxW) globalMaxW = w;
-                        }
-                    });
-                }
-            });
-
-            allRoomColumns.forEach(colName => {
-                const actualHeader = findHeader(colName);
-                if (actualHeader) {
-                    const hasShapes = data.some(r => {
-                        const { length, width } = parseDimensions(r[actualHeader] || '-');
-                        return length > 0 && width > 0;
-                    });
-
-                    if (hasShapes) {
-                        const shapeRows = data.map(r => {
-                            const newRow = { ...r };
-                            return newRow;
-                        });
-                        createShapeVisualization(actualHeader, shapeRows, buildingHeader, globalMaxH, globalMaxW);
+            // 2. Category Charts
+            Object.keys(groups).forEach(groupName => {
+                if (currentViewMode === 'grouped') {
+                    if (groupData[groupName]) {
+                        const colorIndex = Object.keys(groups).indexOf(groupName) % shapeColors.length;
+                        const color = shapeColors[colorIndex];
+                        const dataset = [{
+                            label: 'Area (sq. ft.)',
+                            data: groupData[groupName],
+                            backgroundColor: color,
+                            hoverBackgroundColor: color,
+                            borderColor: color,
+                            borderWidth: 0,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        }];
+                        createBarChart(groupName, buildings, dataset, false, false, breakdownData);
+                    }
+                } else {
+                    // Individual View
+                    if (individualData[groupName]) {
+                        createBarChart(groupName, buildings, individualData[groupName], false, false, null);
                     }
                 }
             });
@@ -601,16 +712,33 @@
                     },
                     plugins: {
                         legend: {
-                            display: isStacked,
+                            display: isStacked || (currentViewMode === 'individual' && !isTotal),
                             labels: { color: '#86868b', font: { family: '-apple-system, sans-serif' } }
                         },
                         datalabels: {
-                            display: !isStacked,
+                            display: function (context) {
+                                // If it's the Total chart (stacked), only show for the last dataset
+                                if (isTotal && isStacked) {
+                                    return context.datasetIndex === context.chart.data.datasets.length - 1;
+                                }
+                                // Existing logic for other charts (grouped view only)
+                                return !isStacked && currentViewMode === 'grouped';
+                            },
                             anchor: 'end',
                             align: 'top',
                             color: '#f5f5f7',
                             font: { weight: 'bold', family: '-apple-system, sans-serif' },
-                            formatter: (v) => v > 0 ? v : ''
+                            formatter: (value, context) => {
+                                if (isTotal && isStacked) {
+                                    // Calculate total for this stack (index)
+                                    let sum = 0;
+                                    context.chart.data.datasets.forEach(dataset => {
+                                        sum += dataset.data[context.dataIndex] || 0;
+                                    });
+                                    return Math.round(sum * 100) / 100;
+                                }
+                                return value > 0 ? value : '';
+                            }
                         },
                         tooltip: {
                             backgroundColor: 'rgba(28, 28, 30, 0.95)',
